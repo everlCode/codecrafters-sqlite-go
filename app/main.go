@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log"
 	"os"
+
+	"github.com/codecrafters-io/sqlite-starter-go/app/parser"
 	// Available if you need it!
 	// "github.com/xwb1989/sqlparser"
 )
@@ -21,6 +23,9 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
+
+		p := parser.New(databaseFile)
+		_ = p
 
 		header := make([]byte, 100)
 
@@ -38,7 +43,14 @@ func main() {
 		fmt.Fprintln(os.Stderr, "Logs from your program will appear here!")
 
 		// TODO: Uncomment the code below to pass the first stage
-		fmt.Printf("database page size: %v", pageSize)
+		fmt.Printf("database page size: %v\n", pageSize)
+
+		parser := parser.New(databaseFile)
+
+		pageHeader := parser.ParsePageHeader()
+		
+		fmt.Printf("number of tables: %v\n", pageHeader.CellsCount)
+	
 	default:
 		fmt.Println("Unknown command", command)
 		os.Exit(1)

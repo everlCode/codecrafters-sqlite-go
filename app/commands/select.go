@@ -34,5 +34,5 @@ func (c *Select) Run(stm sqlparser.Statement) []string {
 
 	page := c.parser.ReadPage(tableSchema.Rootpage)
 
-	return []string{strconv.Itoa(page.PageHeader.CellsCount)}
+	return []string{strconv.Itoa(page.PageHeader.CellsCount) + "\n"}
 }

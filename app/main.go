@@ -27,6 +27,6 @@ func main() {
 	)
 	response := dispatcher.Dispatch(commandName)
 	for _, v := range response {
-		fmt.Println(v)
+		fmt.Print(v)
 	}
 }

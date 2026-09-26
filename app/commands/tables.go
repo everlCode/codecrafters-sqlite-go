@@ -1,6 +1,11 @@
 package commands
 
-import "github.com/codecrafters-io/sqlite-starter-go/app/parser"
+import (
+	"sort"
+	"strings"
+
+	"github.com/codecrafters-io/sqlite-starter-go/app/parser"
+)
 
 type Tables struct {
 	parser *parser.Parser
@@ -13,10 +18,12 @@ func NewTables(p *parser.Parser) *Tables {
 func (c *Tables) Run()[]string {
 	schema := c.parser.ReadSqliteSchema()
 
-	var response string
+	var names []string
 	for _, table := range schema {
-		response += table.Name + " "
+		names = append(names, table.Name)
 	}
+	sort.Strings(names)
+	response := strings.Join(names, " ")
 
 	// c.parser.ReadFileHeader()
 	// pageHeader := c.parser.ReadPageHeader(100)

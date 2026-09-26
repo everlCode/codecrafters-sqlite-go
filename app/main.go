@@ -8,8 +8,6 @@ import (
 	"github.com/codecrafters-io/sqlite-starter-go/app/commands"
 	"github.com/codecrafters-io/sqlite-starter-go/app/dispatcher"
 	"github.com/codecrafters-io/sqlite-starter-go/app/parser"
-	// Available if you need it!
-	// "github.com/xwb1989/sqlparser"
 )
 
 // Usage: your_program.sh sample.db .dbinfo
@@ -25,7 +23,7 @@ func main() {
 	registry := commands.New(parser.New(databaseFile))
 
 	dispatcher := dispatcher.New(
-		registry.Commands,
+		registry,
 	)
 	response := dispatcher.Dispatch(commandName)
 	for _, v := range response {

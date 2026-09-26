@@ -16,7 +16,7 @@ func NewDbInfo(p *parser.Parser) *DbInfo {
 
 func (c *DbInfo) Run() []string {
 	fileHeader := c.parser.ReadFileHeader()
-	pageHeader := c.parser.ReadPageHeader()
+	pageHeader := c.parser.ReadPageHeader(100)
 
 	return []string{
 		fmt.Sprintf("database page size: %v\n", fileHeader.PageSize),

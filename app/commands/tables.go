@@ -13,9 +13,9 @@ func NewTables(p *parser.Parser) *Tables {
 func (c *Tables) Run()[]string {
 	schema := c.parser.ReadSqliteSchema()
 
-	var tableNames []string
+	var response string
 	for _, table := range schema {
-		tableNames = append(tableNames, table.Name)
+		response += table.Name + " "
 	}
 
 	// c.parser.ReadFileHeader()
@@ -35,5 +35,5 @@ func (c *Tables) Run()[]string {
 
 	// }
 
-	return tableNames
+	return []string{response}
 }

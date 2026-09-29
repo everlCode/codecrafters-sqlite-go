@@ -43,18 +43,25 @@ func (c *Select) Run(stm sqlparser.Statement) []string {
 
 	var result []string
 	
-	for _, col := range columns {
-		for _, rec := range page.Records {
+	outer:
+	for _, rec := range page.Records {
+		var row string
+		for colIndex, col := range columns {
 			values := rec.Values
 			if strings.ToLower(col) == "count(*)" {
 				result = append(result, strconv.Itoa(page.PageHeader.CellsCount) + "\n")
-				break
+				break outer
 			}
 			index := tableSchema.GetColumnIndex(col)
 			if  index > 0 {
-				result = append(result, values[index].String + "\n")
+				row += values[index].String
+				if colIndex + 1 < len(columns) {
+					row += "|"
+				}
 			} 
 		}
+		row += "\n"
+		result = append(result, row)
 	} 
 
 	return result

@@ -13,7 +13,7 @@
             "program": "${workspaceFolder}/app",
             "args": [
                 "${workspaceFolder}/sample.db",
-                "SELECT name, color FROM apples"
+                "select count(*) from apples"
             ]
         }
     ]

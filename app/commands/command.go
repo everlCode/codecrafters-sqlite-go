@@ -1,8 +1,9 @@
 package commands
 
 import (
+
 	"github.com/codecrafters-io/sqlite-starter-go/app/parser"
-	"github.com/xwb1989/sqlparser"
+	"github.com/rqlite/sql"
 )
 
 type DotCommand interface {
@@ -10,7 +11,7 @@ type DotCommand interface {
 }
 
 type SqlCommand interface {
-	Run(sqlparser.Statement) []string
+	Run(sql.Statement) []string
 }
 
 type Registry struct {

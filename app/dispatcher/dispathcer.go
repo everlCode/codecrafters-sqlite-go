@@ -1,8 +1,10 @@
 package dispatcher
 
 import (
+	"strings"
+
 	"github.com/codecrafters-io/sqlite-starter-go/app/commands"
-	"github.com/xwb1989/sqlparser"
+	"github.com/rqlite/sql"
 )
 
 type dispatcher struct {
@@ -24,9 +26,13 @@ func (dispatcher *dispatcher) Dispatch(input string) []string {
 		}
 		return cmd.Run()
 	}
-	stm, _ := sqlparser.Parse(input)
+	parser := sql.NewParser(strings.NewReader(input))
+	stm, err := parser.ParseStatement()
+	if err != nil {
+		return []string{"Неверный запрос: " + err.Error()}
+	}
 	switch stm.(type) {
-	case *sqlparser.Select:
+	case *sql.SelectStatement:
 		cmd, ok := dispatcher.Registry.SqlCommands["select"]
 		if !ok {
 			return []string{"Command doesnt exist!"}

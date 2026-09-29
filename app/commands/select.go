@@ -2,6 +2,7 @@ package commands
 
 import (
 	"strconv"
+	"strings"
 
 	"github.com/codecrafters-io/sqlite-starter-go/app/parser"
 	"github.com/xwb1989/sqlparser"
@@ -21,6 +22,12 @@ func (c *Select) Run(stm sqlparser.Statement) []string {
 		return []string{"Error!"}
 	}
 	
+	var columns []string
+	for _, selectExpr := range sel.SelectExprs {
+		s := sqlparser.String(selectExpr)
+		columns = append(columns, s)
+	}
+	
 	schema := c.parser.ReadSqliteSchema()
 	tableExpr, ok := sel.From[0].(*sqlparser.AliasedTableExpr)
 	if !ok {
@@ -34,5 +41,21 @@ func (c *Select) Run(stm sqlparser.Statement) []string {
 
 	page := c.parser.ReadPage(tableSchema.Rootpage)
 
-	return []string{strconv.Itoa(page.PageHeader.CellsCount) + "\n"}
+	var result []string
+	
+	for _, col := range columns {
+		for _, rec := range page.Records {
+			values := rec.Values
+			if strings.ToLower(col) == "count(*)" {
+				result = append(result, strconv.Itoa(page.PageHeader.CellsCount) + "\n")
+				break
+			}
+			index := tableSchema.GetColumnIndex(col)
+			if  index > 0 {
+				result = append(result, values[index].String + "\n")
+			} 
+		}
+	} 
+
+	return result
 }

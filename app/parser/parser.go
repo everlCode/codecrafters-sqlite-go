@@ -4,7 +4,11 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"log"
 	"os"
+	"strings"
+
+	"github.com/rqlite/sql"
 )
 
 type Parser struct {
@@ -25,10 +29,6 @@ type PageHeader struct {
 	CellsCount int
 }
 
-type TableSchema struct {
-	Name     string
-	Rootpage int
-}
 
 func New(file *os.File) *Parser {
 	return &Parser{
@@ -55,7 +55,7 @@ func (p *Parser) ReadPage(number int) *Page {
 	var records []*Record
 	for _, v := range cells {
 		_, n1 := p.GetVarint(int64(v) + pageStart)
-		_, n2 := p.GetVarint(int64(v) + pageStart)
+		_, n2 := p.GetVarint(int64(v) + int64(n1) + pageStart)
 		record := p.ReadRecord(int64(v) + int64(n1) + int64(n2) + pageStart)
 		records = append(records, &record)
 	}
@@ -74,6 +74,22 @@ func (p *Parser) ReadSqliteSchema() map[string]*TableSchema {
 			tableSchema := TableSchema{}
 			tableSchema.Name = values[2].String
 			tableSchema.Rootpage = values[3].Integer
+			
+
+			parser := sql.NewParser(strings.NewReader(values[4].String))
+			stm, err := parser.ParseStatement()
+			if err != nil {
+				log.Fatal(err)
+			}
+			createTable, ok := stm.(*sql.CreateTableStatement)
+			var columns []string
+			for _,v := range createTable.Columns {
+				columns = append(columns, v.Name.Name)
+			}
+			tableSchema.Columns = columns
+			if !ok {
+				continue // это не CREATE TABLE
+			}
 			schema[tableSchema.Name] = &tableSchema
 		}
 	}

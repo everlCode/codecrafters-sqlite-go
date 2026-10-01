@@ -2,6 +2,7 @@ package parser
 
 type Record struct {
 	HeaderSize int
+	RowId int
 	SerialNumbers []SerialNumber
 	Values []Value
 }
@@ -92,5 +93,5 @@ func (p *Parser) ReadRecord(offset int64) Record {
 		SerialNumbers: serialNumbers,
 		Values: values,
 	}
-
 }
+

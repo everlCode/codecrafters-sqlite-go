@@ -12,8 +12,8 @@
             "mode": "auto",
             "program": "${workspaceFolder}/app",
             "args": [
-                "${workspaceFolder}/sample.db",
-                "select count(*) from apples"
+                "${workspaceFolder}/superheroes.db",
+                "SELECT id, name FROM superheroes WHERE eye_color = 'Pink Eyes'"
             ]
         }
     ]

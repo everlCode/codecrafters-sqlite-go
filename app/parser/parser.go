@@ -15,11 +15,6 @@ type Parser struct {
 	file *os.File
 }
 
-type Page struct {
-	PageHeader   *PageHeader
-	Records []*Record
-}
-
 type FileHeader struct {
 	PageSize int
 }
@@ -27,7 +22,14 @@ type FileHeader struct {
 type PageHeader struct {
 	HeaderSize int
 	CellsCount int
+	PageType string
+	RightMostPointer uint32
 }
+
+const (
+	LEAF_PAGE_TYPE = "leaf"
+	INTERIOR_PAGE_TYPE = "interior"
+)
 
 
 func New(file *os.File) *Parser {
@@ -36,7 +38,33 @@ func New(file *os.File) *Parser {
 	}
 }
 
-func (p *Parser) ReadPage(number int) *Page {
+
+func (p *Parser) GetRecords(number int) []*Record {
+	page := p.ReadPage(number)
+	ip, ok := page.(*InteriorPage)
+	var records []*Record
+	if ok {
+		for _, cell := range ip.Cells {
+			leftRecords := p.GetRecords(int(cell.LeftChildPageNumber))
+			records = append(records, leftRecords...)
+		}
+
+		rightRecords := p.GetRecords(int(ip.PageHeader.RightMostPointer))
+		
+
+		return append(records, rightRecords...)
+	}
+
+	lp, ok := page.(*LeafPage)
+	if !ok {
+		log.Fatal("Некоректный тип таблицы")
+	}
+	
+	return lp.Records
+}
+
+
+func (p *Parser) ReadPage(number int) Page {
 	fileHeader := p.ReadFileHeader()
 	var offset int64
 	var pageStart int64
@@ -47,25 +75,62 @@ func (p *Parser) ReadPage(number int) *Page {
 		offset = int64(fileHeader.PageSize * (number - 1))
 		pageStart = offset
 	}
-	page := Page{}
-	page.PageHeader = p.ReadPageHeader(offset)
-	cellsCount := page.PageHeader.CellsCount
-	cells := p.ReadCellPointerArray(cellsCount, offset + int64(page.PageHeader.HeaderSize))
+	pageHeader := p.ReadPageHeader(offset)
+	cellsPointerArray := p.ReadCellPointerArray(pageHeader.CellsCount, offset + int64(pageHeader.HeaderSize))
 
+	if pageHeader.PageType == LEAF_PAGE_TYPE {
+		return p.ReadLeafPageContent(pageStart, pageHeader, cellsPointerArray)
+	}
+
+	return p.ReadInteriorPageContent(pageStart, pageHeader, cellsPointerArray)
+}
+
+func (p *Parser) ReadLeafPageContent(pageStart int64, pageHeader *PageHeader, cellPonterArr []uint16) *LeafPage {
+	page := LeafPage{PageStart: pageStart, PageHeader: pageHeader}
 	var records []*Record
-	for _, v := range cells {
-		_, n1 := p.GetVarint(int64(v) + pageStart)
-		_, n2 := p.GetVarint(int64(v) + int64(n1) + pageStart)
-		record := p.ReadRecord(int64(v) + int64(n1) + int64(n2) + pageStart)
+	var cells []*LeafCell
+	for _, offset := range cellPonterArr {
+		cell := LeafCell{}
+		payloadSize, n1 := p.GetVarint(int64(offset) + pageStart)
+		cell.PayloadSize = payloadSize
+		rowId, n2 := p.GetVarint(int64(offset) + int64(n1) + pageStart)
+		cell.RowId = int(rowId)
+		record := p.ReadRecord(int64(offset) + int64(n1) + int64(n2) + pageStart)
+		record.RowId = int(rowId)
+		cells = append(cells, &cell)
 		records = append(records, &record)
 	}
+	page.Cells = cells
 	page.Records = records
 
 	return &page
 }
 
+func (p *Parser) ReadInteriorPageContent(pageStart int64, pageHeader *PageHeader, cellPonterArr []uint16) *InteriorPage {
+	var cells []*InteriorCell
+	for _, offset := range cellPonterArr {
+		cell := InteriorCell{}
+		bytes, err := p.GetBytes(4, int64(offset) + pageStart)
+		if err != nil {
+			log.Fatal(err.Error())
+		}
+		cell.LeftChildPageNumber = binary.BigEndian.Uint32(bytes)
+		rowID, _ := p.GetVarint(pageStart + int64(offset) + 4)
+		cell.RowId = rowID
+		cells = append(cells, &cell)
+	}
+	page := InteriorPage{PageHeader: pageHeader}
+	page.Cells = cells
+
+	return &page
+}
+
 func (p *Parser) ReadSqliteSchema() map[string]*TableSchema {
-	page := p.ReadPage(1)
+	pg := p.ReadPage(1)
+	page, ok := pg.(*LeafPage)
+	if !ok {
+		log.Fatal("Неверная структура!")
+	}
 
 	schema := map[string]*TableSchema{}
 	for _,v := range page.Records {
@@ -117,23 +182,31 @@ func (p *Parser) ReadFileHeader() *FileHeader {
 func (p *Parser) ReadPageHeader(offset int64) *PageHeader {
 	pageHeader := PageHeader{}
 	header, err := p.GetBytes(8, offset)
-	b := header[0]
-	if b == 2 || b == 10 {
-		pageHeader.HeaderSize = 12
-	} else {
-		pageHeader.HeaderSize = 8
-	}
 	if err != nil {
 		fmt.Errorf(err.Error())
 	}
+	b := header[0]
+	if b == 2 || b == 5 {
+		header, err := p.GetBytes(12, offset)
+		if err != nil {
+			fmt.Errorf(err.Error())
+		}
+		pageHeader.HeaderSize = 12
+		pageHeader.PageType = INTERIOR_PAGE_TYPE
+		pageHeader.RightMostPointer = binary.BigEndian.Uint32(header[8:12])
+	} else {
+		pageHeader.HeaderSize = 8
+		pageHeader.PageType = LEAF_PAGE_TYPE
+	}
+	
 
 	pageHeader.CellsCount = int(binary.BigEndian.Uint16(header[3:5]))
 
 	return &pageHeader
 }
 
-func (p *Parser) ReadCellPointerArray(size int, offset int64) []uint16 {
-	bytess, err := p.GetBytes(size*2, offset)
+func (p *Parser) ReadCellPointerArray(cellsCount int, offset int64) []uint16 {
+	bytess, err := p.GetBytes(cellsCount*2, offset)
 	if err != nil {
 		fmt.Errorf(err.Error())
 	}

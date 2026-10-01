@@ -53,12 +53,10 @@ func (c *Select) Run(stm sql.Statement) []string {
 		return []string{"Table not found!"}
 	}
 
-	page := c.parser.ReadPage(tableSchema.Rootpage)
-
 	var result []string
 	var count int
 
-	for _, rec := range page.Records {
+	for _, rec := range c.parser.GetRecords(tableSchema.Rootpage) {
 
 		if whereExpr != nil {
 			whereIndex := tableSchema.GetColumnIndex(whereCol)
@@ -76,12 +74,19 @@ func (c *Select) Run(stm sql.Statement) []string {
 		for colIndex, col := range columns {
 			values := rec.Values
 			index := tableSchema.GetColumnIndex(col)
-			if  index > 0 {
-				row += values[index].String
-				if colIndex + 1 < len(columns) {
-					row += "|"
+
+			if index >= 0 {
+				if col == "id" {
+					row += strconv.Itoa(rec.RowId) + "|"
+			
+				} else {
+					row += values[index].String
+					if colIndex + 1 < len(columns) {
+						row += "|"
+					}
 				}
 			}
+			
 		}
 		row += "\n"
 		result = append(result, row)

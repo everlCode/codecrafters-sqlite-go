@@ -6,9 +6,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"strings"
-
-	"github.com/rqlite/sql"
 )
 
 type Parser struct {
@@ -20,17 +17,19 @@ type FileHeader struct {
 }
 
 type PageHeader struct {
-	HeaderSize int
-	CellsCount int
-	PageType string
+	HeaderSize       int
+	CellsCount       int
+	PageType         string
 	RightMostPointer uint32
 }
 
 const (
-	LEAF_PAGE_TYPE = "leaf"
-	INTERIOR_PAGE_TYPE = "interior"
-)
+	INTERIOR_TABLE_PAGE_TYPE = "interior_table_page"
+	LEAF_TABLE_PAGE_TYPE     = "leaf_table_page"
 
+	INTERIOR_INDEX_PAGE_TYPE = "interior_index_page"
+	LEAF_INDEX_PAGE_TYPE     = "leaf_index_page"
+)
 
 func New(file *os.File) *Parser {
 	return &Parser{
@@ -38,19 +37,21 @@ func New(file *os.File) *Parser {
 	}
 }
 
-
 func (p *Parser) GetRecords(number int) []*Record {
 	page := p.ReadPage(number)
 	ip, ok := page.(*InteriorPage)
 	var records []*Record
 	if ok {
 		for _, cell := range ip.Cells {
-			leftRecords := p.GetRecords(int(cell.LeftChildPageNumber))
+			c, ok := cell.(*InteriorTableCell)
+			if !ok {
+				continue
+			}
+			leftRecords := p.GetRecords(int(c.LeftChildPageNumber))
 			records = append(records, leftRecords...)
 		}
 
 		rightRecords := p.GetRecords(int(ip.PageHeader.RightMostPointer))
-		
 
 		return append(records, rightRecords...)
 	}
@@ -59,10 +60,9 @@ func (p *Parser) GetRecords(number int) []*Record {
 	if !ok {
 		log.Fatal("Некоректный тип таблицы")
 	}
-	
+
 	return lp.Records
 }
-
 
 func (p *Parser) ReadPage(number int) Page {
 	fileHeader := p.ReadFileHeader()
@@ -76,21 +76,69 @@ func (p *Parser) ReadPage(number int) Page {
 		pageStart = offset
 	}
 	pageHeader := p.ReadPageHeader(offset)
-	cellsPointerArray := p.ReadCellPointerArray(pageHeader.CellsCount, offset + int64(pageHeader.HeaderSize))
+	cellsPointerArray := p.ReadCellPointerArray(pageHeader.CellsCount, offset+int64(pageHeader.HeaderSize))
 
-	if pageHeader.PageType == LEAF_PAGE_TYPE {
+	switch pageHeader.PageType {
+	case INTERIOR_TABLE_PAGE_TYPE:
+		return p.ReadInteriorPageContent(pageStart, pageHeader, cellsPointerArray)
+	case INTERIOR_INDEX_PAGE_TYPE:
+		return p.ReadInteriorIndexPageContent(pageStart, pageHeader, cellsPointerArray)
+	case LEAF_TABLE_PAGE_TYPE:
 		return p.ReadLeafPageContent(pageStart, pageHeader, cellsPointerArray)
+	case LEAF_INDEX_PAGE_TYPE:
+		return p.ReadLeafIndexPageContent(pageStart, pageHeader, cellsPointerArray)
+
 	}
 
-	return p.ReadInteriorPageContent(pageStart, pageHeader, cellsPointerArray)
+	return &LeafPage{}
 }
 
-func (p *Parser) ReadLeafPageContent(pageStart int64, pageHeader *PageHeader, cellPonterArr []uint16) *LeafPage {
+func (p *Parser) ReadLeafIndexPageContent(pageStart int64, pageHeader *PageHeader, cellPonterArr []int64) *LeafPage {
+	var cells []Cell
+	for _, offset := range cellPonterArr {
+		cell := LeaIndexfCell{}
+	
+		payloadSize, n1 := p.GetVarint(pageStart + int64(offset))
+		cell.PayloadSize = payloadSize
+		cell.Payload = p.ReadRecord(pageStart + offset + int64(n1))
+
+		cells = append(cells, &cell)
+	}
+
+	return &LeafPage{
+		PageHeader: pageHeader,
+		Cells:      cells,
+	}
+}
+
+func (p *Parser) ReadInteriorIndexPageContent(pageStart int64, pageHeader *PageHeader, cellPonterArr []int64) *InteriorPage {
+	var cells []Cell
+	for _, offset := range cellPonterArr {
+		cell := InteriorIndexCell{}
+		bytes, err := p.GetBytes(4, int64(offset)+pageStart)
+		if err != nil {
+			log.Fatal(err.Error())
+		}
+		cell.LeftChildPageNumber = binary.BigEndian.Uint32(bytes)
+		payloadSize, n1 := p.GetVarint(pageStart + int64(offset) + 4)
+		cell.PayloadSize = payloadSize
+		cell.Payload = p.ReadRecord(pageStart + offset + 4 + int64(n1))
+
+		cells = append(cells, &cell)
+	}
+
+	return &InteriorPage{
+		PageHeader: pageHeader,
+		Cells:      cells,
+	}
+}
+
+func (p *Parser) ReadLeafPageContent(pageStart int64, pageHeader *PageHeader, cellPonterArr []int64) *LeafPage {
 	page := LeafPage{PageStart: pageStart, PageHeader: pageHeader}
 	var records []*Record
-	var cells []*LeafCell
+	var cells []Cell
 	for _, offset := range cellPonterArr {
-		cell := LeafCell{}
+		cell := LeafTableCell{}
 		payloadSize, n1 := p.GetVarint(int64(offset) + pageStart)
 		cell.PayloadSize = payloadSize
 		rowId, n2 := p.GetVarint(int64(offset) + int64(n1) + pageStart)
@@ -98,7 +146,7 @@ func (p *Parser) ReadLeafPageContent(pageStart int64, pageHeader *PageHeader, ce
 		record := p.ReadRecord(int64(offset) + int64(n1) + int64(n2) + pageStart)
 		record.RowId = int(rowId)
 		cells = append(cells, &cell)
-		records = append(records, &record)
+		records = append(records, record)
 	}
 	page.Cells = cells
 	page.Records = records
@@ -106,11 +154,11 @@ func (p *Parser) ReadLeafPageContent(pageStart int64, pageHeader *PageHeader, ce
 	return &page
 }
 
-func (p *Parser) ReadInteriorPageContent(pageStart int64, pageHeader *PageHeader, cellPonterArr []uint16) *InteriorPage {
-	var cells []*InteriorCell
+func (p *Parser) ReadInteriorPageContent(pageStart int64, pageHeader *PageHeader, cellPonterArr []int64) *InteriorPage {
+	var cells []Cell
 	for _, offset := range cellPonterArr {
-		cell := InteriorCell{}
-		bytes, err := p.GetBytes(4, int64(offset) + pageStart)
+		cell := InteriorTableCell{}
+		bytes, err := p.GetBytes(4, int64(offset)+pageStart)
 		if err != nil {
 			log.Fatal(err.Error())
 		}
@@ -125,47 +173,10 @@ func (p *Parser) ReadInteriorPageContent(pageStart int64, pageHeader *PageHeader
 	return &page
 }
 
-func (p *Parser) ReadSqliteSchema() map[string]*TableSchema {
-	pg := p.ReadPage(1)
-	page, ok := pg.(*LeafPage)
-	if !ok {
-		log.Fatal("Неверная структура!")
-	}
-
-	schema := map[string]*TableSchema{}
-	for _,v := range page.Records {
-		values := v.Values
-		if values[0].String == TableType {
-			tableSchema := TableSchema{}
-			tableSchema.Name = values[2].String
-			tableSchema.Rootpage = values[3].Integer
-			
-
-			parser := sql.NewParser(strings.NewReader(values[4].String))
-			stm, err := parser.ParseStatement()
-			if err != nil {
-				log.Fatal(err)
-			}
-			createTable, ok := stm.(*sql.CreateTableStatement)
-			var columns []string
-			for _,v := range createTable.Columns {
-				columns = append(columns, v.Name.Name)
-			}
-			tableSchema.Columns = columns
-			if !ok {
-				continue // это не CREATE TABLE
-			}
-			schema[tableSchema.Name] = &tableSchema
-		}
-	}
-
-	return schema
-}
-
 func (p *Parser) ReadFileHeader() *FileHeader {
 	header, err := p.GetBytes(100, 0)
 	if err != nil {
-		fmt.Errorf(err.Error())
+		log.Fatal(err.Error())
 	}
 
 	var pageSize uint16
@@ -183,39 +194,46 @@ func (p *Parser) ReadPageHeader(offset int64) *PageHeader {
 	pageHeader := PageHeader{}
 	header, err := p.GetBytes(8, offset)
 	if err != nil {
-		fmt.Errorf(err.Error())
+		log.Fatal(err.Error())
 	}
 	b := header[0]
 	if b == 2 || b == 5 {
 		header, err := p.GetBytes(12, offset)
 		if err != nil {
-			fmt.Errorf(err.Error())
+			log.Fatal(err.Error())
 		}
 		pageHeader.HeaderSize = 12
-		pageHeader.PageType = INTERIOR_PAGE_TYPE
 		pageHeader.RightMostPointer = binary.BigEndian.Uint32(header[8:12])
+		if b == 2 {
+			pageHeader.PageType = INTERIOR_INDEX_PAGE_TYPE
+		} else {
+			pageHeader.PageType = INTERIOR_TABLE_PAGE_TYPE
+		}
+
 	} else {
+		if b == 10 {
+			pageHeader.PageType = LEAF_INDEX_PAGE_TYPE
+		} else {
+			pageHeader.PageType = LEAF_TABLE_PAGE_TYPE
+		}
 		pageHeader.HeaderSize = 8
-		pageHeader.PageType = LEAF_PAGE_TYPE
 	}
-	
 
 	pageHeader.CellsCount = int(binary.BigEndian.Uint16(header[3:5]))
 
 	return &pageHeader
 }
 
-func (p *Parser) ReadCellPointerArray(cellsCount int, offset int64) []uint16 {
+func (p *Parser) ReadCellPointerArray(cellsCount int, offset int64) []int64 {
 	bytess, err := p.GetBytes(cellsCount*2, offset)
 	if err != nil {
-		fmt.Errorf(err.Error())
+		log.Fatal(err.Error())
 	}
 
-	var cellPointer uint16
-	var cellPointerArray []uint16
-	for i := 0; i < len(bytess); i += 2 {
-		binary.Read(bytes.NewReader(bytess[i:i+2]), binary.BigEndian, &cellPointer)
-		cellPointerArray = append(cellPointerArray, cellPointer)
+	var cellPointerArray []int64
+	for i := 0; i+2 <= len(bytess); i += 2 {
+		cellPointer := binary.BigEndian.Uint16(bytess[i : i+2])
+		cellPointerArray = append(cellPointerArray, int64(cellPointer))
 	}
 
 	return cellPointerArray

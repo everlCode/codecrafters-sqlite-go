@@ -19,7 +19,7 @@ func (c *Tables) Run()[]string {
 	schema := c.parser.ReadSqliteSchema()
 
 	var names []string
-	for _, table := range schema {
+	for _, table := range schema.Tables {
 		names = append(names, table.Name)
 	}
 	sort.Strings(names)
